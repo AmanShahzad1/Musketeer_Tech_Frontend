@@ -8,6 +8,8 @@ import toast from 'react-hot-toast';
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
     username: '',
     email: '',
     password: '',
@@ -60,7 +62,6 @@ export default function RegisterPage() {
     try {
       await register(formData);
       toast.success('Account created successfully!');
-      router.push('/pages/profile');
     } catch (err: any) {
       setError(err.response?.data?.msg || 'Registration failed');
       toast.error('Registration failed');
@@ -89,6 +90,49 @@ export default function RegisterPage() {
           )}
 
           <form className="space-y-5" onSubmit={handleSubmit}>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                  First Name
+                </label>
+                <div className="relative mt-1 rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiUser className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="firstName"
+                    name="firstName"
+                    type="text"
+                    required
+                    value={formData.firstName}
+                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                    className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    placeholder="John"
+                  />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
+                  Last Name
+                </label>
+                <div className="relative mt-1 rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiUser className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="lastName"
+                    name="lastName"
+                    type="text"
+                    required
+                    value={formData.lastName}
+                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                    className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    placeholder="Doe"
+                  />
+                </div>
+              </div>
+            </div>
+
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
                 Username

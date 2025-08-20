@@ -6,13 +6,16 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 
 type User = {
-_id: string;
+  _id: string;
   id: string;
+  firstName: string;
+  lastName: string;
   username: string;
   email: string;
   bio?: string;
   interests?: string[];
   profilePicture?: string;
+  createdAt: string;
 };
 
 type AuthContextType = {
@@ -20,6 +23,8 @@ type AuthContextType = {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (userData: {
+    firstName: string;
+    lastName: string;
     username: string;
     email: string;
     password: string;
@@ -85,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('token', res.data.token);
       setUser(res.data.user);
       toast.success('Logged in successfully!');
-      router.push('/profile');
+      router.push('/pages/home');
     } catch (err: any) {
       toast.error(err.response?.data?.msg || 'Login failed');
       throw err;
@@ -107,9 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('token', res.data.token);
       setUser(res.data.user);
       toast.success('Registration successful!');
-      router.push('/profile');
+      router.push('/pages/home');
     } catch (err: any) {
-      toast.error(err.response?.data?.msg || 'Registration failed');
       throw err;
     } finally {
       setIsLoading(false);
@@ -125,17 +129,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      console.log('Updating profile with data:', data);
+      console.log('Token:', token);
+
       const res = await axios.patch(
         'http://localhost:5000/api/profile',
         data,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
         }
       );
 
+      console.log('Profile update response:', res.data);
       setUser(res.data);
       toast.success('Profile updated successfully!');
     } catch (err: any) {
+      console.error('Profile update error:', err);
       toast.error(err.response?.data?.msg || 'Profile update failed');
       throw err;
     } finally {

@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthProvider';
 import axios from 'axios';
-import { FiHome, FiUser, FiImage, FiSend, FiTrash2, FiHeart, FiMessageSquare } from 'react-icons/fi';
+import { FiHome, FiUser, FiImage, FiSend, FiTrash2, FiHeart, FiMessageSquare, FiLogOut } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
@@ -24,7 +24,7 @@ type Post = {
 };
 
 export default function HomePage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
   const [posts, setPosts] = useState<Post[]>([]);
   const [text, setText] = useState('');
@@ -43,20 +43,23 @@ export default function HomePage() {
     try {
       setIsLoading(true);
       const res = await axios.get(`${API_URL}/posts?page=${pageNum}&limit=10`);
+      
       if (pageNum === 1) {
         setPosts(res.data.data.posts);
       } else {
         setPosts(prev => [...prev, ...res.data.data.posts]);
       }
-      setHasMore(res.data.data.posts.length > 0);
+      
+      setHasMore(res.data.data.pagination.hasNextPage);
     } catch (err) {
+      console.error('Fetch posts error:', err);
       toast.error('Failed to load posts');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // CREATE POST SECTION - This is the form that was missing
+  // CREATE POST SECTION
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -73,22 +76,25 @@ export default function HomePage() {
     setIsPosting(true);
     const formData = new FormData();
     formData.append('text', text);
-    formData.append('userId', user._id);
     if (image) formData.append('image', image);
 
     try {
-      const res = await axios.post('http://localhost:5000/api/posts', formData, {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/posts`, formData, {
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
         },
       });
+      
       setPosts([res.data.data.post, ...posts]);
       setText('');
       setImage(null);
       setImagePreview(null);
       toast.success('Post created successfully!');
-    } catch (err) {
-      toast.error('Failed to create post');
+    } catch (err: any) {
+      console.error('Create post error:', err);
+      toast.error(err.response?.data?.msg || 'Failed to create post');
     } finally {
       setIsPosting(false);
     }
@@ -116,39 +122,78 @@ export default function HomePage() {
     if (!window.confirm('Are you sure you want to delete this post?')) return;
 
     try {
+      const token = localStorage.getItem('token');
       await axios.delete(`${API_URL}/posts/${postId}`, {
-        data: { userId: user?._id }
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       setPosts(posts.filter(post => post._id !== postId));
       toast.success('Post deleted successfully');
-    } catch (err) {
-      toast.error('Failed to delete post');
+    } catch (err: any) {
+      console.error('Delete post error:', err);
+      toast.error(err.response?.data?.msg || 'Failed to delete post');
     }
   };
 
-  const handleLikePost = async (postId: string) => {
+    const handleLikePost = async (postId: string) => {
     if (!user) {
       toast.error('You must be logged in to like posts');
       return;
     }
 
     try {
-      // This would call your like endpoint if you implement it
-      // For now, we'll just update the UI
+      const token = localStorage.getItem('token');
+      const currentPost = posts.find(post => post._id === postId);
+      const isLiked = currentPost?.likes.includes(user._id);
+      
+      // Optimistic update for immediate feedback
       setPosts(posts.map(post => {
         if (post._id === postId) {
-          const isLiked = post.likes.includes(user._id);
           return {
             ...post,
-            likes: isLiked
+            likes: isLiked 
               ? post.likes.filter(id => id !== user._id)
               : [...post.likes, user._id]
           };
         }
         return post;
       }));
-    } catch (err) {
-      toast.error('Failed to like post');
+      
+      if (isLiked) {
+        // Unlike post
+        await axios.delete(`${API_URL}/posts/${postId}/like`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+      } else {
+        // Like post
+        await axios.post(`${API_URL}/posts/${postId}/like`, {}, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+      }
+    } catch (err: any) {
+      console.error('Like/Unlike post error:', err);
+      toast.error(err.response?.data?.msg || 'Failed to update like');
+      
+      // Revert optimistic update on error
+      const currentPost = posts.find(post => post._id === postId);
+      const isLiked = currentPost?.likes.includes(user._id);
+      
+      setPosts(posts.map(post => {
+        if (post._id === postId) {
+          return {
+            ...post,
+            likes: isLiked 
+              ? post.likes.filter(id => id !== user._id)
+              : [...post.likes, user._id]
+          };
+        }
+        return post;
+      }));
     }
   };
 
@@ -159,12 +204,19 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
           <h1 className="text-xl font-bold text-blue-600">ConnectHub</h1>
           <div className="flex items-center space-x-4">
-            <Link href="/home" className="text-blue-600">
+            <Link href="/pages/home" className="text-blue-600">
               <FiHome className="h-6 w-6" />
             </Link>
             <Link href={`/pages/profile/${user?.username}`} className="text-gray-600 hover:text-blue-600">
               <FiUser className="h-6 w-6" />
             </Link>
+            <button
+              onClick={logout}
+              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
+            >
+              <FiLogOut className="h-5 w-5" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
           </div>
         </div>
       </header>
@@ -271,36 +323,39 @@ export default function HomePage() {
               </div>
               <p className="mb-3">{post.text}</p>
               {post.image && (
-                <div 
-                  className="mb-3 rounded-lg overflow-hidden cursor-pointer"
-                  onClick={() => router.push(`/posts/${post._id}`)}
-                >
-                  <Image
-                    src={post.image}
-                    alt="Post image"
-                    width={800}
-                    height={450}
-                    className="w-full h-auto max-h-96 object-cover"
-                  />
+                <div className="mb-3 rounded-lg overflow-hidden">
+                  <Link href={`/pages/posts/${post._id}`}>
+                    <Image
+                      src={post.image}
+                      alt="Post image"
+                      width={800}
+                      height={450}
+                      className="w-full h-auto max-h-96 object-cover cursor-pointer hover:opacity-90 transition-opacity duration-200"
+                    />
+                  </Link>
                 </div>
               )}
               <div className="flex space-x-4 text-gray-500 border-t pt-3">
                 <button 
-                  className={`flex items-center space-x-1 ${
-                    post.likes.includes(user?._id || '') ? 'text-red-500' : 'hover:text-blue-600'
+                  className={`flex items-center space-x-1 transition-all duration-200 ${
+                    post.likes.includes(user?._id || '') 
+                      ? 'text-red-500 scale-110' 
+                      : 'hover:text-red-500 hover:scale-105'
                   }`}
                   onClick={() => handleLikePost(post._id)}
                 >
-                  <FiHeart className="h-5 w-5" />
-                  <span>{post.likes.length}</span>
+                  <FiHeart className={`h-5 w-5 ${
+                    post.likes.includes(user?._id || '') ? 'fill-current' : ''
+                  }`} />
+                  <span className="font-medium">{post.likes.length}</span>
                 </button>
-                <button 
-                  className="flex items-center space-x-1 hover:text-blue-600"
-                  onClick={() => router.push(`/posts/${post._id}`)}
+                <Link 
+                  href={`/pages/posts/${post._id}`}
+                  className="flex items-center space-x-1 hover:text-blue-600 transition-colors duration-200 hover:scale-105"
                 >
                   <FiMessageSquare className="h-5 w-5" />
                   <span>Comment</span>
-                </button>
+                </Link>
               </div>
             </div>
           ))}
