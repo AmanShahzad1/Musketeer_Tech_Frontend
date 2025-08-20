@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthProvider';
-import { FiUser, FiHome, FiLogOut, FiHeart, FiMessageSquare, FiTrash2, FiArrowLeft } from 'react-icons/fi';
+import { FiUser, FiHome, FiLogOut, FiHeart, FiMessageSquare, FiTrash2, FiArrowLeft, FiSearch, FiUsers } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
@@ -245,6 +245,12 @@ export default function PostPage() {
           <div className="flex items-center space-x-4">
             <Link href="/pages/home" className="text-gray-600 hover:text-blue-600">
               <FiHome className="h-6 w-6" />
+            </Link>
+            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
+              <FiSearch className="h-6 w-6" />
+            </Link>
+            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
+              <FiUsers className="h-6 w-6" />
             </Link>
             <Link href={`/pages/profile/${user?.username}`} className="text-gray-600 hover:text-blue-600">
               <FiUser className="h-6 w-6" />

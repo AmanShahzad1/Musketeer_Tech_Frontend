@@ -2,10 +2,11 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthProvider';
 import axios from 'axios';
-import { FiHome, FiUser, FiImage, FiSend, FiTrash2, FiHeart, FiMessageSquare, FiLogOut } from 'react-icons/fi';
+import { FiHome, FiUser, FiImage, FiSend, FiTrash2, FiHeart, FiMessageSquare, FiLogOut, FiSearch, FiUsers, FiUserPlus, FiUserCheck } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
+// import { io, Socket } from 'socket.io-client';
 import { useRouter } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -28,16 +29,57 @@ export default function HomePage() {
   const router = useRouter();
   const [posts, setPosts] = useState<Post[]>([]);
   const [text, setText] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [image, setImage] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isPosting, setIsPosting] = useState(false);
+  const [followStatuses, setFollowStatuses] = useState<{[key: string]: boolean}>({});
+  const [socket, setSocket] = useState<any>(null);
 
   useEffect(() => {
     fetchPosts();
-  }, []);
+    
+    // Initialize WebSocket connection
+    // if (user) {
+    //   const newSocket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000');
+    //   setSocket(newSocket);
+
+    //   // Join user room
+    //   newSocket.emit('join', user._id);
+
+    //   // Listen for real-time updates
+    //   newSocket.on('postLiked', (data: any) => {
+    //     setPosts(prevPosts => 
+    //       prevPosts.map(post => 
+    //       post._id === data.postId 
+    //         ? { ...post, likes: [...post.likes, data.userId] }
+    //         : post
+    //       )
+    //     );
+    //   });
+
+    //   newSocket.on('newComment', (data: any) => {
+    //     setPosts(prevPosts => 
+    //       prevPosts.map(post => 
+    //       post._id === data.postId 
+    //         ? { ...post, comments: [...post.comments, data.comment] }
+    //         : post
+    //       )
+    //     );
+    //   });
+
+    //   newSocket.on('newFollower', (data: any) => {
+    //     toast.success(`${data.followerName} started following you!`);
+    //   });
+
+    //   return () => {
+    //     newSocket.close();
+    //   };
+    // }
+  }, [user]);
 
   const fetchPosts = async (pageNum = 1) => {
     try {
@@ -117,6 +159,57 @@ export default function HomePage() {
     setPage(nextPage);
     fetchPosts(nextPage);
   };
+
+  // Follow/Unfollow functionality
+  const checkFollowStatus = async (userId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/follow/check/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setFollowStatuses(prev => ({
+        ...prev,
+        [userId]: res.data.data.isFollowing
+      }));
+    } catch (err) {
+      console.error('Check follow status error:', err);
+    }
+  };
+
+  const handleFollow = async (userId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (followStatuses[userId]) {
+        // Unfollow
+        await axios.delete(`${API_URL}/follow/${userId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setFollowStatuses(prev => ({ ...prev, [userId]: false }));
+        toast.success('Unfollowed successfully');
+      } else {
+        // Follow
+        await axios.post(`${API_URL}/follow/${userId}`, {}, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setFollowStatuses(prev => ({ ...prev, [userId]: true }));
+        toast.success('Followed successfully');
+      }
+    } catch (err: any) {
+      console.error('Follow/Unfollow error:', err);
+      toast.error(err.response?.data?.msg || 'Failed to update follow status');
+    }
+  };
+
+  // Check follow status for all posts on load
+  useEffect(() => {
+    if (posts.length > 0 && user) {
+      posts.forEach(post => {
+        if (post.user._id !== user._id) {
+          checkFollowStatus(post.user._id);
+        }
+      });
+    }
+  }, [posts, user]);
 
   const handleDeletePost = async (postId: string) => {
     if (!window.confirm('Are you sure you want to delete this post?')) return;
@@ -207,6 +300,15 @@ export default function HomePage() {
             <Link href="/pages/home" className="text-blue-600">
               <FiHome className="h-6 w-6" />
             </Link>
+            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
+              <FiSearch className="h-6 w-6" />
+            </Link>
+            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
+              <FiUsers className="h-6 w-6" />
+            </Link>
+            <Link href="/pages/chat" className="text-gray-600 hover:text-blue-600">
+              <FiMessageSquare className="h-6 w-6" />
+            </Link>
             <Link href={`/pages/profile/${user?.username}`} className="text-gray-600 hover:text-blue-600">
               <FiUser className="h-6 w-6" />
             </Link>
@@ -223,7 +325,33 @@ export default function HomePage() {
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto py-6 px-4">
-        {/* CREATE POST SECTION - This is the form that was missing */}
+        {/* Search Posts Section */}
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="flex space-x-4">
+            <div className="flex-1 relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <FiSearch className="h-5 w-5 text-gray-400" />
+              </div>
+              <input
+                type="text"
+                placeholder="Search posts..."
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+            </div>
+            <Link
+              href={`/pages/search?q=${encodeURIComponent(searchText.trim())}`}
+              className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 ${
+                !searchText.trim() ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              Search
+            </Link>
+          </div>
+        </div>
+
+        {/* CREATE POST SECTION */}
         {user && (
           <div className="bg-white rounded-lg shadow p-4 mb-6">
             <form onSubmit={handleSubmit}>
@@ -310,6 +438,29 @@ export default function HomePage() {
                     <p className="text-xs text-gray-500">
                       {new Date(post.createdAt).toLocaleString()}
                     </p>
+                    {/* Follow Button */}
+                    {user?._id !== post.user._id && (
+                      <button
+                        onClick={() => handleFollow(post.user._id)}
+                        className={`mt-1 flex items-center space-x-1 px-2 py-1 text-xs rounded-full transition-all duration-200 ${
+                          followStatuses[post.user._id]
+                            ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                        }`}
+                      >
+                        {followStatuses[post.user._id] ? (
+                          <>
+                            <FiUserCheck className="h-3 w-3" />
+                            <span>Following</span>
+                          </>
+                        ) : (
+                          <>
+                            <FiUserPlus className="h-3 w-3" />
+                            <span>Follow</span>
+                          </>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
                 {user?._id === post.user._id && (

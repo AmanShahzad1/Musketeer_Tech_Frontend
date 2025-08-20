@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthProvider';
-import { FiUser, FiEdit3, FiMapPin, FiCalendar, FiHeart, FiHome, FiLogOut, FiMessageSquare } from 'react-icons/fi';
+import { FiUser, FiEdit3, FiMapPin, FiCalendar, FiHeart, FiHome, FiLogOut, FiMessageSquare, FiSearch, FiUsers } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
@@ -91,6 +91,12 @@ export default function ProfilePage() {
             <Link href="/pages/home" className="text-gray-600 hover:text-blue-600">
               <FiHome className="h-6 w-6" />
             </Link>
+            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
+              <FiSearch className="h-6 w-6" />
+            </Link>
+            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
+              <FiUsers className="h-6 w-6" />
+            </Link>
             <Link href={`/pages/profile/${user?.username}`} className="text-blue-600">
               <FiUser className="h-6 w-6" />
             </Link>
@@ -159,6 +165,22 @@ export default function ProfilePage() {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Friends Suggestions Section */}
+        {isOwnProfile && (
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">People You May Know</h2>
+              <Link 
+                href="/pages/friends" 
+                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+              >
+                View All
+              </Link>
+            </div>
+            <FriendsSuggestionsPreview />
           </div>
         )}
 
@@ -300,4 +322,104 @@ function UserPostsSection({ username }: { username: string }) {
       )}
     </div>
   );
-} 
+}
+
+// Friends Suggestions Preview Component
+function FriendsSuggestionsPreview() {
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    fetchSuggestions();
+  }, []);
+
+  const fetchSuggestions = async () => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem('token');
+      const res = await axios.get('http://localhost:5000/api/friends/suggestions', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSuggestions(res.data.data.suggestions.slice(0, 3)); // Show only 3 suggestions
+    } catch (err) {
+      console.error('Fetch suggestions error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const sendFriendRequest = async (toUserId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('http://localhost:5000/api/friends/request', 
+        { toUserId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      toast.success('Friend request sent!');
+      // Remove from suggestions
+      setSuggestions(prev => prev.filter(s => s._id !== toUserId));
+    } catch (err: any) {
+      console.error('Send friend request error:', err);
+      toast.error(err.response?.data?.msg || 'Failed to send friend request');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="text-center py-4">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-2 text-sm text-gray-500">Loading suggestions...</p>
+      </div>
+    );
+  }
+
+  if (suggestions.length === 0) {
+    return (
+      <div className="text-center py-4">
+        <p className="text-gray-500 text-sm">No suggestions available</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {suggestions.map((suggestion) => (
+        <div key={suggestion._id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+              {suggestion.profilePicture ? (
+                <Image
+                  src={suggestion.profilePicture}
+                  alt={suggestion.username}
+                  width={40}
+                  height={40}
+                  className="object-cover w-full h-full"
+                />
+              ) : (
+                <FiUser className="h-5 w-5 text-gray-500" />
+              )}
+            </div>
+            <div>
+              <h4 className="font-medium text-gray-800 text-sm">
+                {suggestion.firstName} {suggestion.lastName}
+              </h4>
+              <p className="text-xs text-gray-500">@{suggestion.username}</p>
+              <div className="flex items-center space-x-1 mt-1">
+                <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
+                  {suggestion.similarityScore}% match
+                </span>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => sendFriendRequest(suggestion._id)}
+            className="px-3 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors duration-200"
+          >
+            Add
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
