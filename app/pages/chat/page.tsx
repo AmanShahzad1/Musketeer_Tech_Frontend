@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthProvider';
-import { FiUser, FiSend, FiMessageSquare, FiSearch, FiPlus, FiRefreshCw } from 'react-icons/fi';
+import { FiUser, FiSend, FiMessageSquare, FiSearch, FiPlus, FiRefreshCw, FiArrowLeft, FiMenu } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
@@ -72,6 +72,7 @@ export default function ChatPage() {
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showChatList, setShowChatList] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
@@ -335,6 +336,11 @@ export default function ChatPage() {
       setSearchResults([]);
       // Clear typing indicators
       setTypingUsers(new Set());
+      
+      // On mobile, hide chat list when chat is started
+      if (window.innerWidth < 768) {
+        setShowChatList(false);
+      }
     } catch (err: any) {
       console.error('Start chat error:', err);
       toast.error(err.response?.data?.msg || 'Failed to start chat');
@@ -345,6 +351,11 @@ export default function ChatPage() {
     setSelectedChat(chat);
     selectedChatRef.current = chat;
     setShowNewChat(false);
+    
+    // On mobile, hide chat list when chat is selected
+    if (window.innerWidth < 768) {
+      setShowChatList(false);
+    }
     
     // Show any pending typing events for this chat
     const pendingTyping = pendingTypingEvents.get(chat._id);
@@ -476,33 +487,33 @@ export default function ChatPage() {
       <Navigation maxWidth="6xl" />
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto py-6 px-4">
-        <div className="bg-white rounded-lg shadow-lg h-[calc(100vh-200px)] flex">
-          {/* Chat List */}
-          <div className="w-1/3 border-r border-gray-200 flex flex-col">
+      <main className="w-full max-w-6xl mx-auto py-2 sm:py-4 md:py-6 px-2 sm:px-4">
+        <div className="bg-white rounded-lg shadow-lg h-[calc(100vh-120px)] sm:h-[calc(100vh-140px)] md:h-[calc(100vh-200px)] flex flex-col md:flex-row overflow-hidden">
+          {/* Chat List - Mobile Responsive */}
+          <div className={`${showChatList ? 'flex' : 'hidden'} md:flex md:w-1/3 border-r border-gray-200 flex-col w-full min-h-0`}>
             {/* Header */}
-            <div className="p-4 border-b border-gray-200">
+            <div className="p-3 sm:p-4 border-b border-gray-200 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <h2 className="text-lg font-semibold text-gray-800">Messages</h2>
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-800">Messages</h2>
                   <div className={`w-2 h-2 rounded-full ${
                     isSocketConnected ? 'bg-green-500' : 'bg-gray-400'
                   }`} title={isSocketConnected ? 'Connected' : 'Connecting...'}></div>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1 sm:space-x-2">
                   <button
                     onClick={refreshChats}
-                    className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
+                    className="p-1.5 sm:p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
                     title="Refresh chats"
                   >
-                    <FiRefreshCw className="h-5 w-5" />
+                    <FiRefreshCw className="h-4 w-4 sm:h-5 sm:w-5" />
                   </button>
                   <button
                     onClick={() => setShowNewChat(!showNewChat)}
-                    className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
+                    className="p-1.5 sm:p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
                     title="Start new chat"
                   >
-                    <FiPlus className="h-5 w-5" />
+                    <FiPlus className="h-4 w-4 sm:h-5 sm:w-5" />
                   </button>
                 </div>
               </div>
@@ -526,7 +537,7 @@ export default function ChatPage() {
                   
                   {/* Search Results */}
                   {searchQuery && (
-                    <div className="mt-2 max-h-40 overflow-y-auto">
+                    <div className="mt-2 max-h-32 sm:max-h-40 overflow-y-auto">
                       {isSearching ? (
                         <div className="text-center py-2">
                           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mx-auto"></div>
@@ -540,7 +551,7 @@ export default function ChatPage() {
                               className="w-full text-left p-2 hover:bg-gray-50 rounded-lg transition-colors duration-200"
                             >
                               <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
                                   {isValidImagePath(user.profilePicture) ? (
                                     <Image
                                       src={getImageUrl(user.profilePicture)!}
@@ -573,16 +584,16 @@ export default function ChatPage() {
             </div>
             
             {/* Chat List */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto min-h-0">
               {isLoading ? (
                 <div className="p-4 text-center">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
                 </div>
               ) : chats.length === 0 ? (
                 <div className="p-4 text-center text-gray-500">
-                  <FiMessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                  <p>No conversations yet</p>
-                  <p className="text-sm mt-1">Start chatting with your friends!</p>
+                  <FiMessageSquare className="h-10 w-10 sm:h-12 sm:w-12 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm sm:text-base">No conversations yet</p>
+                  <p className="text-xs sm:text-sm mt-1">Start chatting with your friends!</p>
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
@@ -594,12 +605,12 @@ export default function ChatPage() {
                       <div
                         key={chat._id}
                         onClick={() => selectChat(chat)}
-                        className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 ${
+                        className={`p-3 sm:p-4 cursor-pointer hover:bg-gray-50 transition-colors duration-200 ${
                           selectedChat?._id === chat._id ? 'bg-blue-50 border-r-2 border-blue-500' : ''
                         }`}
                       >
-                        <div className="flex items-center space-x-3">
-                          <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                        <div className="flex items-center space-x-2 sm:space-x-3">
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
                             {otherUser && isValidImagePath(otherUser.profilePicture) ? (
                               <Image
                                 src={getImageUrl(otherUser.profilePicture)!}
@@ -609,22 +620,22 @@ export default function ChatPage() {
                                 className="object-cover w-full h-full"
                               />
                             ) : (
-                              <FiUser className="h-6 w-6 text-gray-500" />
+                              <FiUser className="h-5 w-5 sm:h-6 sm:w-6 text-gray-500" />
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
-                              <h3 className="font-medium text-gray-800 truncate">
+                              <h3 className="font-medium text-gray-800 truncate text-sm sm:text-base">
                                 {otherUser?.firstName} {otherUser?.lastName}
                               </h3>
                               {lastMessage && (
-                                <span className="text-xs text-gray-400 ml-2">
+                                <span className="text-xs text-gray-400 ml-2 flex-shrink-0">
                                   {formatDate(lastMessage.timestamp)}
                                 </span>
                               )}
                             </div>
                             {lastMessage && (
-                              <p className="text-sm text-gray-500 truncate">
+                              <p className="text-xs sm:text-sm text-gray-500 truncate mt-1">
                                 {lastMessage.sender._id === user?._id ? 'You: ' : ''}
                                 {lastMessage.text}
                               </p>
@@ -639,18 +650,29 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Chat Messages */}
-          <div className="flex-1 flex flex-col">
+          {/* Chat Messages - Mobile Responsive */}
+          <div className={`${!showChatList ? 'flex' : 'hidden'} md:flex flex-1 flex-col w-full min-h-0`}>
             {selectedChat ? (
               <>
-                {/* Chat Header */}
-                <div className="p-4 border-b border-gray-200">
-                  <div className="flex items-center space-x-3">
+                {/* Chat Header - Mobile Responsive */}
+                <div className="p-3 sm:p-4 border-b border-gray-200 flex-shrink-0 bg-white">
+                  <div className="flex items-center space-x-2 sm:space-x-3">
+                    {/* Mobile Back Button */}
+                    <button
+                      onClick={() => {
+                        setShowChatList(true);
+                        setSelectedChat(null);
+                      }}
+                      className="md:hidden p-1.5 sm:p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200 flex-shrink-0"
+                    >
+                      <FiArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+                    </button>
+                    
                     {(() => {
                       const otherUser = getOtherParticipant(selectedChat);
                       return (
                         <>
-                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
                             {otherUser && isValidImagePath(otherUser.profilePicture) ? (
                               <Image
                                 src={getImageUrl(otherUser.profilePicture)!}
@@ -660,14 +682,14 @@ export default function ChatPage() {
                                 className="object-cover w-full h-full"
                               />
                             ) : (
-                              <FiUser className="h-5 w-5 text-gray-500" />
+                              <FiUser className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
                             )}
                           </div>
-                          <div>
-                            <h3 className="font-semibold text-gray-800">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-800 truncate text-sm sm:text-base">
                               {otherUser?.firstName} {otherUser?.lastName}
                             </h3>
-                            <p className="text-sm text-gray-500">@{otherUser?.username}</p>
+                            <p className="text-xs sm:text-sm text-gray-500 truncate">@{otherUser?.username}</p>
                           </div>
                         </>
                       );
@@ -676,12 +698,12 @@ export default function ChatPage() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto p-2 sm:p-3 md:p-4 space-y-3 min-h-0 bg-gray-50">
                   {selectedChat.messages.length === 0 ? (
-                    <div className="text-center text-gray-500 py-8">
-                      <FiMessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                      <p>No messages yet</p>
-                      <p className="text-sm mt-1">Start the conversation!</p>
+                    <div className="text-center text-gray-500 py-8 sm:py-12">
+                      <FiMessageSquare className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm sm:text-base font-medium">No messages yet</p>
+                      <p className="text-xs sm:text-sm mt-1 text-gray-400">Start the conversation!</p>
                     </div>
                   ) : (
                     selectedChat.messages.map((message) => (
@@ -690,14 +712,14 @@ export default function ChatPage() {
                         className={`flex ${message.sender._id === user?._id ? 'justify-end' : 'justify-start'}`}
                       >
                         <div
-                          className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                          className={`max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md px-3 py-2.5 sm:px-4 sm:py-3 rounded-lg shadow-sm ${
                             message.sender._id === user?._id
                               ? 'bg-blue-600 text-white'
-                              : 'bg-gray-200 text-gray-800'
+                              : 'bg-white text-gray-800 border border-gray-200'
                           }`}
                         >
-                          <p className="text-sm">{message.text}</p>
-                          <p className={`text-xs mt-1 ${
+                          <p className="text-sm break-words leading-relaxed">{message.text}</p>
+                          <p className={`text-xs mt-2 ${
                             message.sender._id === user?._id ? 'text-blue-100' : 'text-gray-500'
                           }`}>
                             {formatTime(message.timestamp)}
@@ -710,27 +732,25 @@ export default function ChatPage() {
                 </div>
 
                 {/* Message Input */}
-                <div className="p-4 border-t border-gray-200">
+                <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white">
                   
                   {/* Typing Indicator */}
                   {typingUsers.size > 0 && (
-                    <div className="mb-2 text-center">
-                      <div className="inline-flex items-center space-x-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs">
+                    <div className="mb-3 text-center">
+                      <div className="inline-flex items-center space-x-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-full text-xs border border-blue-200">
                         <div className="flex space-x-1">
                           <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce"></div>
                           <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
                           <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                         </div>
-                        <span className="font-medium">
+                        <span className="font-medium text-xs">
                           {Array.from(typingUsers).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
                         </span>
                       </div>
                     </div>
                   )}
                   
-
-                  
-                  <form onSubmit={sendMessage} className="flex space-x-2">
+                  <form onSubmit={sendMessage} className="flex space-x-3">
                     <input
                       type="text"
                       value={messageText}
@@ -762,12 +782,12 @@ export default function ChatPage() {
                         }
                       }}
                       placeholder="Type a message..."
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white"
                     />
                     <button
                       type="submit"
                       disabled={!messageText.trim()}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                      className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex-shrink-0 shadow-sm"
                     >
                       <FiSend className="h-4 w-4" />
                     </button>
@@ -775,11 +795,11 @@ export default function ChatPage() {
                 </div>
               </>
             ) : (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center text-gray-500">
-                  <FiMessageSquare className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                  <p className="text-lg">Select a conversation to start chatting</p>
-                  <p className="text-sm mt-1">Your conversations will appear here</p>
+              <div className="flex-1 flex items-center justify-center min-h-0 bg-gray-50">
+                <div className="text-center text-gray-500 p-6">
+                  <FiMessageSquare className="h-16 w-16 sm:h-20 sm:w-20 mx-auto mb-4 text-gray-300" />
+                  <p className="text-lg sm:text-xl font-medium">Select a conversation to start chatting</p>
+                  <p className="text-sm sm:text-base mt-2 text-gray-400">Your conversations will appear here</p>
                 </div>
               </div>
             )}
