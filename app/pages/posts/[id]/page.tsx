@@ -2,11 +2,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthProvider';
-import { FiUser, FiHome, FiLogOut, FiHeart, FiMessageSquare, FiTrash2, FiArrowLeft, FiSearch, FiUsers } from 'react-icons/fi';
+import { FiUser, FiHeart, FiMessageSquare, FiTrash2, FiArrowLeft } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import Navigation from '../../../components/Navigation';
+import { getImageUrl, isValidImagePath } from '../../../utils/imageUtils';
 
 type Comment = {
   _id: string;
@@ -238,33 +240,7 @@ export default function PostPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-blue-600">ConnectHub</h1>
-          <div className="flex items-center space-x-4">
-            <Link href="/pages/home" className="text-gray-600 hover:text-blue-600">
-              <FiHome className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
-              <FiSearch className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
-              <FiUsers className="h-6 w-6" />
-            </Link>
-            <Link href={`/pages/profile/${user?.username}`} className="text-gray-600 hover:text-blue-600">
-              <FiUser className="h-6 w-6" />
-            </Link>
-            <button
-              onClick={logout}
-              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-            >
-              <FiLogOut className="h-5 w-5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navigation />
 
       {/* Main Content */}
       <main className="max-w-2xl mx-auto py-6 px-4">
@@ -284,9 +260,9 @@ export default function PostPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
               <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                {post.user.profilePicture ? (
+                {isValidImagePath(post.user.profilePicture) ? (
                   <Image
-                    src={post.user.profilePicture}
+                    src={getImageUrl(post.user.profilePicture)!}
                     alt={post.user.username}
                     width={48}
                     height={48}
@@ -321,10 +297,10 @@ export default function PostPage() {
 
           <p className="text-gray-800 text-lg mb-4">{post.text}</p>
           
-          {post.image && (
+          {isValidImagePath(post.image) && (
             <div className="mb-4 rounded-lg overflow-hidden">
               <Image
-                src={post.image}
+                src={getImageUrl(post.image)!}
                 alt="Post image"
                 width={800}
                 height={450}
@@ -397,9 +373,9 @@ export default function PostPage() {
                  <div key={comment._id} className="border-b border-gray-100 pb-4 last:border-b-0">
                    <div className="flex items-start space-x-3">
                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                       {comment.user.profilePicture ? (
+                       {isValidImagePath(comment.user.profilePicture) ? (
                          <Image
-                           src={comment.user.profilePicture}
+                           src={getImageUrl(comment.user.profilePicture)!}
                            alt={comment.user.username}
                            width={32}
                            height={32}

@@ -6,7 +6,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 
 type User = {
-  _id: string;
+_id: string;
   id: string;
   firstName: string;
   lastName: string;

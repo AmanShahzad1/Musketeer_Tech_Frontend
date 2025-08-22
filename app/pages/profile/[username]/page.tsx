@@ -2,11 +2,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthProvider';
-import { FiUser, FiEdit3, FiMapPin, FiCalendar, FiHeart, FiHome, FiLogOut, FiMessageSquare, FiSearch, FiUsers } from 'react-icons/fi';
+import { FiUser, FiEdit3, FiMapPin, FiCalendar, FiHeart, FiMessageSquare } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import Navigation from '../../../components/Navigation';
+import { getImageUrl, isValidImagePath } from '../../../utils/imageUtils';
 
 type ProfileUser = {
   _id: string;
@@ -83,33 +85,7 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-blue-600">ConnectHub</h1>
-          <div className="flex items-center space-x-4">
-            <Link href="/pages/home" className="text-gray-600 hover:text-blue-600">
-              <FiHome className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
-              <FiSearch className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
-              <FiUsers className="h-6 w-6" />
-            </Link>
-            <Link href={`/pages/profile/${user?.username}`} className="text-blue-600">
-              <FiUser className="h-6 w-6" />
-            </Link>
-            <button
-              onClick={logout}
-              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-            >
-              <FiLogOut className="h-5 w-5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navigation />
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto py-6 px-4">
@@ -117,9 +93,19 @@ export default function ProfilePage() {
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center space-x-6">
-              {/* Profile Picture Placeholder */}
+              {/* Profile Picture */}
               <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                <FiUser className="h-12 w-12 text-gray-500" />
+                {isValidImagePath(profileUser.profilePicture) ? (
+                  <Image
+                    src={getImageUrl(profileUser.profilePicture)!}
+                    alt={`${profileUser.firstName} ${profileUser.lastName}`}
+                    width={96}
+                    height={96}
+                    className="object-cover w-full h-full"
+                  />
+                ) : (
+                  <FiUser className="h-12 w-12 text-gray-500" />
+                )}
               </div>
               
               <div>
@@ -200,10 +186,13 @@ export default function ProfilePage() {
                 <FiHeart className="h-4 w-4" />
                 <span>Follow</span>
               </button>
-              <button className="flex-1 flex items-center justify-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200">
-                <FiUser className="h-4 w-4" />
+              <Link
+                href={`/pages/chat?user=${profileUser._id}`}
+                className="flex-1 flex items-center justify-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200"
+              >
+                <FiMessageSquare className="h-4 w-4" />
                 <span>Message</span>
-              </button>
+              </Link>
             </div>
           </div>
         )}
@@ -277,10 +266,10 @@ function UserPostsSection({ username }: { username: string }) {
             
             <p className="text-gray-800 mb-3">{post.text}</p>
             
-            {post.image && (
+            {isValidImagePath(post.image) && (
               <div className="mb-3 rounded-lg overflow-hidden">
                 <Image
-                  src={post.image}
+                  src={getImageUrl(post.image)!}
                   alt="Post image"
                   width={400}
                   height={225}
@@ -388,9 +377,9 @@ function FriendsSuggestionsPreview() {
         <div key={suggestion._id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-              {suggestion.profilePicture ? (
+              {isValidImagePath(suggestion.profilePicture) ? (
                 <Image
-                  src={suggestion.profilePicture}
+                  src={getImageUrl(suggestion.profilePicture)!}
                   alt={suggestion.username}
                   width={40}
                   height={40}

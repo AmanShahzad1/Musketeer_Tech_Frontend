@@ -1,11 +1,15 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthProvider';
-import { FiUser, FiHome, FiLogOut, FiSearch, FiUsers, FiMessageSquare, FiSend } from 'react-icons/fi';
+import { FiUser, FiSend, FiMessageSquare, FiSearch, FiPlus, FiRefreshCw } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { io, Socket } from 'socket.io-client';
+import Navigation from '../../components/Navigation';
+import { getImageUrl, isValidImagePath } from '../../utils/imageUtils';
 
 type Chat = {
   _id: string;
@@ -30,6 +34,7 @@ type Chat = {
     read: boolean;
   }>;
   lastMessage: string;
+  unreadCount?: number;
 };
 
 type Message = {
@@ -46,24 +51,194 @@ type Message = {
   read: boolean;
 };
 
+type User = {
+  _id: string;
+  username: string;
+  firstName: string;
+  lastName: string;
+  profilePicture?: string;
+};
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
+  const searchParams = useSearchParams();
   const [chats, setChats] = useState<Chat[]>([]);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [messageText, setMessageText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showNewChat, setShowNewChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const [pendingTypingEvents, setPendingTypingEvents] = useState<Map<string, Set<string>>>(new Map());
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const selectedChatRef = useRef<Chat | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    fetchChats();
+    
+    // Check if there's a user parameter in the URL to start a chat
+    const userId = searchParams.get('user');
+    
+    const initializeChats = async () => {
+      await fetchChats();
+      
+      // Start new chat after chats are loaded
+      if (userId) {
+        startNewChat(userId);
+      }
+    };
+    
+    initializeChats();
+  }, [user, searchParams]);
+
+  // Initialize socket connection
+  useEffect(() => {
+    if (!user) return;
+    
+    const cleanup = initializeSocket();
+    
+    return () => {
+      if (cleanup) cleanup();
+      if (socket) {
+        socket.close();
+      }
+    };
   }, [user]);
+
+  // Join chat room when socket is ready and chat is selected
+  useEffect(() => {
+    if (socket && selectedChat) {
+      socket.emit('joinChat', selectedChat._id);
+    }
+  }, [socket, selectedChat]);
+
+  // Auto-refresh chats when the page becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user) {
+        fetchChats();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [user]);
+
+  // Cleanup typing timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
   }, [selectedChat?.messages]);
+
+  const initializeSocket = () => {
+    if (!user) return;
+
+    // Initialize socket connection
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
+    const newSocket = io(socketUrl, {
+      transports: ['websocket', 'polling'],
+      auth: {
+        token: localStorage.getItem('token')
+      }
+    });
+
+    // Socket event handlers
+    newSocket.on('connect', () => {
+      setIsSocketConnected(true);
+      // Join user to their personal room
+      newSocket.emit('join', user._id);
+    });
+
+    newSocket.on('disconnect', () => {
+      setIsSocketConnected(false);
+    });
+
+    newSocket.on('newMessage', (data: { chatId: string; message: Message }) => {
+      // Update the chat in the chats list
+      setChats(prevChats => 
+        prevChats.map(chat => {
+          if (chat._id === data.chatId) {
+            return {
+              ...chat,
+              messages: [...chat.messages, data.message],
+              lastMessage: new Date().toISOString()
+            };
+          }
+          return chat;
+        })
+      );
+
+      // Update selected chat if it's the current one
+      setSelectedChat(prev => {
+        if (prev && prev._id === data.chatId) {
+          return {
+            ...prev,
+            messages: [...prev.messages, data.message],
+            lastMessage: new Date().toISOString()
+          };
+        }
+        return prev;
+      });
+
+      // Show notification if chat is not currently selected
+      if (selectedChat?._id !== data.chatId) {
+        toast.success('New message received!');
+      }
+    });
+
+    // Handle typing indicators
+    newSocket.on('userTyping', (data: { chatId: string; userId: string; username: string }) => {
+      // Check if this typing event is for the currently selected chat
+      if (data.chatId === selectedChatRef.current?._id && data.userId !== user?._id) {
+        setTypingUsers(prev => new Set(prev).add(data.username));
+      } else if (data.userId !== user?._id) {
+        // Store typing events for other chats
+        setPendingTypingEvents(prev => {
+          const newMap = new Map(prev);
+          const currentTyping = newMap.get(data.chatId) || new Set();
+          currentTyping.add(data.username);
+          newMap.set(data.chatId, currentTyping);
+          return newMap;
+        });
+      }
+    });
+
+    newSocket.on('userStoppedTyping', (data: { chatId: string; userId: string; username: string }) => {
+      if (data.chatId === selectedChatRef.current?._id && data.userId !== user?._id) {
+        setTypingUsers(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(data.username);
+          return newSet;
+        });
+      }
+    });
+
+    newSocket.on('connect_error', (error) => {
+      toast.error('Connection error. Messages may not update in real-time.');
+    });
+
+    setSocket(newSocket);
+
+    // Cleanup function
+    return () => {
+      newSocket.close();
+    };
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -76,7 +251,23 @@ export default function ChatPage() {
       const res = await axios.get(`${API_URL}/chat`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setChats(res.data.data.chats);
+      
+      const updatedChats = res.data.data.chats;
+      setChats(updatedChats);
+      
+      // If we have a selected chat, update it with the latest data
+      if (selectedChat) {
+        const updatedSelectedChat = updatedChats.find((chat: Chat) => chat._id === selectedChat._id);
+        if (updatedSelectedChat) {
+          setSelectedChat(updatedSelectedChat);
+        }
+      }
+      
+      // Auto-select first chat if no chat is selected and we have chats
+      if (!selectedChat && updatedChats.length > 0) {
+        setSelectedChat(updatedChats[0]);
+        selectedChatRef.current = updatedChats[0];
+      }
     } catch (err) {
       console.error('Fetch chats error:', err);
       toast.error('Failed to load chats');
@@ -85,8 +276,99 @@ export default function ChatPage() {
     }
   };
 
+  const searchUsers = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      setIsSearching(true);
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/search/users?q=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Filter out current user and use the correct data structure from your search controller
+      setSearchResults(res.data.data.users.filter((u: User) => u._id !== user?._id));
+    } catch (err) {
+      console.error('Search users error:', err);
+      toast.error('Failed to search users');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const startNewChat = async (userId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/chat/user/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      const newChat = res.data.data.chat;
+      
+      // Check if chat already exists in the list
+      const existingChatIndex = chats.findIndex((chat: Chat) => 
+        chat.participants.some(p => p._id === userId)
+      );
+      
+      if (existingChatIndex !== -1) {
+        // Chat already exists, just select it and refresh to get latest data
+        setSelectedChat(chats[existingChatIndex]);
+        // Refresh chats to ensure we have the latest data
+        setTimeout(() => refreshChats(), 100);
+        toast.success('Chat opened successfully!');
+      } else {
+        // Add new chat to the beginning of the list
+        setChats(prevChats => [newChat, ...prevChats]);
+        setSelectedChat(newChat);
+        toast.success('Chat started successfully!');
+      }
+      
+      // Join the chat room for real-time updates
+      if (socket) {
+        socket.emit('joinChat', newChat._id);
+      }
+      
+      setShowNewChat(false);
+      setSearchQuery('');
+      setSearchResults([]);
+      // Clear typing indicators
+      setTypingUsers(new Set());
+    } catch (err: any) {
+      console.error('Start chat error:', err);
+      toast.error(err.response?.data?.msg || 'Failed to start chat');
+    }
+  };
+
   const selectChat = (chat: Chat) => {
     setSelectedChat(chat);
+    selectedChatRef.current = chat;
+    setShowNewChat(false);
+    
+    // Show any pending typing events for this chat
+    const pendingTyping = pendingTypingEvents.get(chat._id);
+    if (pendingTyping && pendingTyping.size > 0) {
+      setTypingUsers(pendingTyping);
+      // Clear pending events for this chat
+      setPendingTypingEvents(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(chat._id);
+        return newMap;
+      });
+    } else {
+      // Clear typing indicators when switching chats
+      setTypingUsers(new Set());
+    }
+    
+    // Join the chat room for real-time updates
+    if (socket) {
+      socket.emit('joinChat', chat._id);
+    }
+  };
+
+  const refreshChats = () => {
+    fetchChats();
   };
 
   const sendMessage = async (e: React.FormEvent) => {
@@ -96,15 +378,58 @@ export default function ChatPage() {
 
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`${API_URL}/chat/${selectedChat._id}/message`, {
+      const res = await axios.post(`${API_URL}/chat/${selectedChat._id}/message`, {
         text: messageText.trim()
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
+      const newMessage = res.data.data.message;
+      
+      // Update the selected chat with the new message immediately
+      setSelectedChat(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          messages: [...prev.messages, newMessage],
+          lastMessage: new Date().toISOString()
+        };
+      });
+
+      // Update the chat in the chats list immediately
+      setChats(prevChats => 
+        prevChats.map(chat => 
+          chat._id === selectedChat._id 
+            ? {
+                ...chat,
+                messages: [...chat.messages, newMessage],
+                lastMessage: new Date().toISOString()
+              }
+            : chat
+        )
+      );
+
+      // Emit socket event for real-time updates to other users
+      if (socket) {
+        socket.emit('messageSent', {
+          chatId: selectedChat._id,
+          message: newMessage
+        });
+      }
+
+      // Clear typing indicator
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (socket && selectedChat) {
+        socket.emit('stopTyping', {
+          chatId: selectedChat._id,
+          userId: user?._id,
+          username: user?.username
+        });
+      }
+
       setMessageText('');
-      // Refresh chats to get updated messages
-      fetchChats();
     } catch (err: any) {
       console.error('Send message error:', err);
       toast.error(err.response?.data?.msg || 'Failed to send message');
@@ -122,6 +447,17 @@ export default function ChatPage() {
     });
   };
 
+  const formatDate = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return date.toLocaleDateString([], { weekday: 'short' });
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -137,44 +473,107 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-blue-600">ConnectHub</h1>
-          <div className="flex items-center space-x-4">
-            <Link href="/pages/home" className="text-gray-600 hover:text-blue-600">
-              <FiHome className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
-              <FiSearch className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
-              <FiUsers className="h-6 w-6" />
-            </Link>
-            <Link href={`/pages/profile/${user?.username}`} className="text-gray-600 hover:text-blue-600">
-              <FiUser className="h-6 w-6" />
-            </Link>
-            <button
-              onClick={logout}
-              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-            >
-              <FiLogOut className="h-5 w-5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navigation maxWidth="6xl" />
 
       {/* Main Content */}
       <main className="max-w-6xl mx-auto py-6 px-4">
         <div className="bg-white rounded-lg shadow-lg h-[calc(100vh-200px)] flex">
           {/* Chat List */}
-          <div className="w-1/3 border-r border-gray-200">
+          <div className="w-1/3 border-r border-gray-200 flex flex-col">
+            {/* Header */}
             <div className="p-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-800">Messages</h2>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <h2 className="text-lg font-semibold text-gray-800">Messages</h2>
+                  <div className={`w-2 h-2 rounded-full ${
+                    isSocketConnected ? 'bg-green-500' : 'bg-gray-400'
+                  }`} title={isSocketConnected ? 'Connected' : 'Connecting...'}></div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={refreshChats}
+                    className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
+                    title="Refresh chats"
+                  >
+                    <FiRefreshCw className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowNewChat(!showNewChat)}
+                    className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
+                    title="Start new chat"
+                  >
+                    <FiPlus className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              
+              {/* New Chat Search */}
+              {showNewChat && (
+                <div className="mt-3">
+                  <div className="relative">
+                    <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                    <input
+                      type="text"
+                      placeholder="Search users..."
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        searchUsers(e.target.value);
+                      }}
+                      className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    />
+                  </div>
+                  
+                  {/* Search Results */}
+                  {searchQuery && (
+                    <div className="mt-2 max-h-40 overflow-y-auto">
+                      {isSearching ? (
+                        <div className="text-center py-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mx-auto"></div>
+                        </div>
+                      ) : searchResults.length > 0 ? (
+                        <div className="space-y-1">
+                          {searchResults.map((user) => (
+                            <button
+                              key={user._id}
+                              onClick={() => startNewChat(user._id)}
+                              className="w-full text-left p-2 hover:bg-gray-50 rounded-lg transition-colors duration-200"
+                            >
+                              <div className="flex items-center space-x-2">
+                                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                                  {isValidImagePath(user.profilePicture) ? (
+                                    <Image
+                                      src={getImageUrl(user.profilePicture)!}
+                                      alt={user.username}
+                                      width={32}
+                                      height={32}
+                                      className="object-cover w-full h-full"
+                                    />
+                                  ) : (
+                                    <FiUser className="h-4 w-4 text-gray-500" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-gray-800 truncate text-sm">
+                                    {user.firstName} {user.lastName}
+                                  </p>
+                                  <p className="text-xs text-gray-500 truncate">@{user.username}</p>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-center text-gray-500 text-sm py-2">No users found</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             
-            <div className="overflow-y-auto h-full">
+            {/* Chat List */}
+            <div className="flex-1 overflow-y-auto">
               {isLoading ? (
                 <div className="p-4 text-center">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
@@ -201,9 +600,9 @@ export default function ChatPage() {
                       >
                         <div className="flex items-center space-x-3">
                           <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                            {otherUser?.profilePicture ? (
+                            {otherUser && isValidImagePath(otherUser.profilePicture) ? (
                               <Image
-                                src={otherUser.profilePicture}
+                                src={getImageUrl(otherUser.profilePicture)!}
                                 alt={otherUser.username}
                                 width={48}
                                 height={48}
@@ -214,9 +613,16 @@ export default function ChatPage() {
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-gray-800 truncate">
-                              {otherUser?.firstName} {otherUser?.lastName}
-                            </h3>
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-medium text-gray-800 truncate">
+                                {otherUser?.firstName} {otherUser?.lastName}
+                              </h3>
+                              {lastMessage && (
+                                <span className="text-xs text-gray-400 ml-2">
+                                  {formatDate(lastMessage.timestamp)}
+                                </span>
+                              )}
+                            </div>
                             {lastMessage && (
                               <p className="text-sm text-gray-500 truncate">
                                 {lastMessage.sender._id === user?._id ? 'You: ' : ''}
@@ -224,11 +630,6 @@ export default function ChatPage() {
                               </p>
                             )}
                           </div>
-                          {lastMessage && (
-                            <span className="text-xs text-gray-400">
-                              {formatTime(lastMessage.timestamp)}
-                            </span>
-                          )}
                         </div>
                       </div>
                     );
@@ -250,9 +651,9 @@ export default function ChatPage() {
                       return (
                         <>
                           <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                            {otherUser?.profilePicture ? (
+                            {otherUser && isValidImagePath(otherUser.profilePicture) ? (
                               <Image
-                                src={otherUser.profilePicture}
+                                src={getImageUrl(otherUser.profilePicture)!}
                                 alt={otherUser.username}
                                 width={40}
                                 height={40}
@@ -276,37 +677,90 @@ export default function ChatPage() {
 
                 {/* Messages */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {selectedChat.messages.map((message) => (
-                    <div
-                      key={message._id}
-                      className={`flex ${message.sender._id === user?._id ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                          message.sender._id === user?._id
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-200 text-gray-800'
-                        }`}
-                      >
-                        <p className="text-sm">{message.text}</p>
-                        <p className={`text-xs mt-1 ${
-                          message.sender._id === user?._id ? 'text-blue-100' : 'text-gray-500'
-                        }`}>
-                          {formatTime(message.timestamp)}
-                        </p>
-                      </div>
+                  {selectedChat.messages.length === 0 ? (
+                    <div className="text-center text-gray-500 py-8">
+                      <FiMessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                      <p>No messages yet</p>
+                      <p className="text-sm mt-1">Start the conversation!</p>
                     </div>
-                  ))}
+                  ) : (
+                    selectedChat.messages.map((message) => (
+                      <div
+                        key={message._id}
+                        className={`flex ${message.sender._id === user?._id ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                            message.sender._id === user?._id
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-800'
+                          }`}
+                        >
+                          <p className="text-sm">{message.text}</p>
+                          <p className={`text-xs mt-1 ${
+                            message.sender._id === user?._id ? 'text-blue-100' : 'text-gray-500'
+                          }`}>
+                            {formatTime(message.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
                   <div ref={messagesEndRef} />
                 </div>
 
                 {/* Message Input */}
                 <div className="p-4 border-t border-gray-200">
+                  
+                  {/* Typing Indicator */}
+                  {typingUsers.size > 0 && (
+                    <div className="mb-2 text-center">
+                      <div className="inline-flex items-center space-x-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs">
+                        <div className="flex space-x-1">
+                          <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce"></div>
+                          <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                          <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        </div>
+                        <span className="font-medium">
+                          {Array.from(typingUsers).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
+
+                  
                   <form onSubmit={sendMessage} className="flex space-x-2">
                     <input
                       type="text"
                       value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
+                      onChange={(e) => {
+                        setMessageText(e.target.value);
+                        // Emit typing event
+                        if (socket && selectedChat && e.target.value.trim()) {
+                          socket.emit('typing', {
+                            chatId: selectedChat._id,
+                            userId: user?._id,
+                            username: user?.username
+                          });
+                          
+                          // Clear typing timeout
+                          if (typingTimeoutRef.current) {
+                            clearTimeout(typingTimeoutRef.current);
+                          }
+                          
+                          // Set timeout to stop typing indicator
+                          typingTimeoutRef.current = setTimeout(() => {
+                            if (socket && selectedChat) {
+                              socket.emit('stopTyping', {
+                                chatId: selectedChat._id,
+                                userId: user?._id,
+                                username: user?.username
+                              });
+                            }
+                          }, 1000);
+                        }
+                      }}
                       placeholder="Type a message..."
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />

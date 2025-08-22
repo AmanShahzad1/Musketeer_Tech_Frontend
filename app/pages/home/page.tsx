@@ -2,12 +2,14 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthProvider';
 import axios from 'axios';
-import { FiHome, FiUser, FiImage, FiSend, FiTrash2, FiHeart, FiMessageSquare, FiLogOut, FiSearch, FiUsers, FiUserPlus, FiUserCheck } from 'react-icons/fi';
+import { FiUser, FiImage, FiSend, FiTrash2, FiHeart, FiUserPlus, FiUserCheck, FiSearch, FiMessageSquare, FiMessageCircle } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
-// import { io, Socket } from 'socket.io-client';
+import { io } from 'socket.io-client';
 import { useRouter } from 'next/navigation';
+import Navigation from '../../components/Navigation';
+import { getImageUrl, isValidImagePath } from '../../utils/imageUtils';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -18,10 +20,26 @@ type Post = {
   user: {
     _id: string;
     username: string;
+    firstName?: string;
+    lastName?: string;
     profilePicture?: string;
   };
   createdAt: string;
   likes: string[];
+  comments: Comment[];
+};
+
+type Comment = {
+  _id: string;
+  user: {
+    _id: string;
+    username: string;
+    firstName?: string;
+    lastName?: string;
+    profilePicture?: string;
+  };
+  text: string;
+  createdAt: string;
 };
 
 export default function HomePage() {
@@ -38,47 +56,71 @@ export default function HomePage() {
   const [isPosting, setIsPosting] = useState(false);
   const [followStatuses, setFollowStatuses] = useState<{[key: string]: boolean}>({});
   const [socket, setSocket] = useState<any>(null);
+  const [commentTexts, setCommentTexts] = useState<{ [postId: string]: string }>({});
+  const [showComments, setShowComments] = useState<{ [postId: string]: boolean }>({});
+  const [isSubmittingComment, setIsSubmittingComment] = useState<{ [postId: string]: boolean }>({});
 
   useEffect(() => {
     fetchPosts();
     
     // Initialize WebSocket connection
-    // if (user) {
-    //   const newSocket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000');
-    //   setSocket(newSocket);
+    if (user) {
+      const newSocket = io(process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000');
+      
+      // Join user room
+      newSocket.emit('join', user._id);
 
-    //   // Join user room
-    //   newSocket.emit('join', user._id);
+      // Listen for real-time updates
+      newSocket.on('postLiked', (data: any) => {
+        setPosts(prevPosts => 
+          prevPosts.map(post => 
+            post._id === data.postId 
+              ? { ...post, likes: [...post.likes, data.userId] }
+              : post
+          )
+        );
+      });
 
-    //   // Listen for real-time updates
-    //   newSocket.on('postLiked', (data: any) => {
-    //     setPosts(prevPosts => 
-    //       prevPosts.map(post => 
-    //       post._id === data.postId 
-    //         ? { ...post, likes: [...post.likes, data.userId] }
-    //         : post
-    //       )
-    //     );
-    //   });
+      newSocket.on('postUnliked', (data: any) => {
+        setPosts(prevPosts => 
+          prevPosts.map(post => 
+            post._id === data.postId 
+              ? { ...post, likes: post.likes.filter(id => id !== data.userId) }
+              : post
+          )
+        );
+      });
 
-    //   newSocket.on('newComment', (data: any) => {
-    //     setPosts(prevPosts => 
-    //       prevPosts.map(post => 
-    //       post._id === data.postId 
-    //         ? { ...post, comments: [...post.comments, data.comment] }
-    //         : post
-    //       )
-    //     );
-    //   });
+      newSocket.on('newComment', (data: any) => {
+        console.log('WebSocket newComment received:', data);
+        // Only add comment if it's not from the current user (to avoid duplicates)
+        if (data.comment.user._id !== user?._id) {
+          setPosts(prevPosts => 
+            prevPosts.map(post => 
+              post._id === data.postId 
+                ? { 
+                    ...post, 
+                    comments: [data.comment, ...(post.comments || [])]
+                  }
+                : post
+            )
+          );
+        } else {
+          console.log('Ignoring WebSocket comment from current user to avoid duplicate');
+        }
+      });
 
-    //   newSocket.on('newFollower', (data: any) => {
-    //     toast.success(`${data.followerName} started following you!`);
-    //   });
+      newSocket.on('newFollower', (data: any) => {
+        toast.success(`${data.followerName} started following you!`);
+      });
 
-    //   return () => {
-    //     newSocket.close();
-    //   };
-    // }
+      // Set socket after setting up event listeners
+      setSocket(newSocket);
+
+      return () => {
+        newSocket.close();
+      };
+    }
   }, [user]);
 
   const fetchPosts = async (pageNum = 1) => {
@@ -260,6 +302,14 @@ export default function HomePage() {
             'Authorization': `Bearer ${token}`
           }
         });
+
+        // Emit WebSocket event for unlike
+        if (socket) {
+          socket.emit('postUnliked', {
+            postId: postId,
+            userId: user._id
+          });
+        }
       } else {
         // Like post
         await axios.post(`${API_URL}/posts/${postId}/like`, {}, {
@@ -267,6 +317,14 @@ export default function HomePage() {
             'Authorization': `Bearer ${token}`
           }
         });
+
+        // Emit WebSocket event for like
+        if (socket) {
+          socket.emit('postLiked', {
+            postId: postId,
+            userId: user._id
+          });
+        }
       }
     } catch (err: any) {
       console.error('Like/Unlike post error:', err);
@@ -290,38 +348,109 @@ export default function HomePage() {
     }
   };
 
+  // Comment handling functions
+  const handleComment = async (postId: string) => {
+    const commentText = commentTexts[postId]?.trim();
+    if (!commentText) return;
+
+    try {
+      setIsSubmittingComment(prev => ({ ...prev, [postId]: true }));
+      const token = localStorage.getItem('token');
+      
+      const res = await axios.post(`${API_URL}/posts/${postId}/comments`, {
+        text: commentText
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      console.log('Adding comment locally:', res.data.data.comment);
+      console.log('Comment structure:', {
+        _id: res.data.data.comment._id,
+        text: res.data.data.comment.text,
+        user: res.data.data.comment.user,
+        createdAt: res.data.data.comment.createdAt
+      });
+      
+      // Update posts with new comment
+      setPosts(prevPosts => {
+        console.log('Previous posts state:', prevPosts.map(p => ({ id: p._id, commentCount: p.comments?.length || 0 })));
+        
+        const updatedPosts = prevPosts.map(post => {
+          if (post._id === postId) {
+            const newPost = {
+              ...post,
+              comments: [res.data.data.comment, ...(post.comments || [])]
+            };
+            console.log('Updated post:', { id: newPost._id, commentCount: newPost.comments.length });
+            return newPost;
+          }
+          return post;
+        });
+        
+        console.log('New posts state:', updatedPosts.map(p => ({ id: p._id, commentCount: p.comments?.length || 0 })));
+        return updatedPosts;
+      });
+
+
+
+      // Clear comment text
+      setCommentTexts(prev => ({ ...prev, [postId]: '' }));
+      
+      toast.success('Comment added successfully!');
+    } catch (err: any) {
+      console.error('Add comment error:', err);
+      toast.error(err.response?.data?.msg || 'Failed to add comment');
+    } finally {
+      setIsSubmittingComment(prev => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  const deleteComment = async (postId: string, commentId: string) => {
+    if (!confirm('Are you sure you want to delete this comment?')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_URL}/posts/${postId}/comments/${commentId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setPosts(prevPosts => 
+        prevPosts.map(post => {
+          if (post._id === postId) {
+            return {
+              ...post,
+              comments: post.comments.filter(comment => comment._id !== commentId)
+            };
+          }
+          return post;
+        })
+      );
+      
+      toast.success('Comment deleted successfully!');
+    } catch (err: any) {
+      console.error('Delete comment error:', err);
+      toast.error(err.response?.data?.msg || 'Failed to delete comment');
+    }
+  };
+
+  // Helper function to format time
+  const formatTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffMinutes = Math.ceil(diffTime / (1000 * 60));
+    const diffHours = Math.ceil(diffTime / (1000 * 60 * 60));
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-blue-600">ConnectHub</h1>
-          <div className="flex items-center space-x-4">
-            <Link href="/pages/home" className="text-blue-600">
-              <FiHome className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
-              <FiSearch className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
-              <FiUsers className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/chat" className="text-gray-600 hover:text-blue-600">
-              <FiMessageSquare className="h-6 w-6" />
-            </Link>
-            <Link href={`/pages/profile/${user?.username}`} className="text-gray-600 hover:text-blue-600">
-              <FiUser className="h-6 w-6" />
-            </Link>
-            <button
-              onClick={logout}
-              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-            >
-              <FiLogOut className="h-5 w-5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navigation />
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto py-6 px-4">
@@ -416,9 +545,9 @@ export default function HomePage() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                    {post.user.profilePicture ? (
+                    {isValidImagePath(post.user.profilePicture) ? (
                       <Image
-                        src={post.user.profilePicture}
+                        src={getImageUrl(post.user.profilePicture)!}
                         alt={post.user.username}
                         width={40}
                         height={40}
@@ -436,7 +565,7 @@ export default function HomePage() {
                       {post.user.username}
                     </Link>
                     <p className="text-xs text-gray-500">
-                      {new Date(post.createdAt).toLocaleString()}
+                      {formatTime(post.createdAt)}
                     </p>
                     {/* Follow Button */}
                     {user?._id !== post.user._id && (
@@ -473,11 +602,11 @@ export default function HomePage() {
                 )}
               </div>
               <p className="mb-3">{post.text}</p>
-              {post.image && (
+              {isValidImagePath(post.image) && (
                 <div className="mb-3 rounded-lg overflow-hidden">
                   <Link href={`/pages/posts/${post._id}`}>
                     <Image
-                      src={post.image}
+                      src={getImageUrl(post.image)!}
                       alt="Post image"
                       width={800}
                       height={450}
@@ -500,14 +629,106 @@ export default function HomePage() {
                   }`} />
                   <span className="font-medium">{post.likes.length}</span>
                 </button>
-                <Link 
-                  href={`/pages/posts/${post._id}`}
+                <button 
                   className="flex items-center space-x-1 hover:text-blue-600 transition-colors duration-200 hover:scale-105"
+                  onClick={() => setShowComments(prev => ({ ...prev, [post._id]: !prev[post._id] }))}
                 >
-                  <FiMessageSquare className="h-5 w-5" />
-                  <span>Comment</span>
-                </Link>
+                  <FiMessageCircle className="h-5 w-5" />
+                  <span className="font-medium">{(post.comments || []).length}</span>
+                </button>
               </div>
+
+              {/* Comments Section */}
+              {showComments[post._id] && user && (
+                <div className="border-t border-gray-100 p-4 bg-gray-50">
+                  {/* Add Comment */}
+                  <div className="flex items-center space-x-3 mb-4">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                      {isValidImagePath(user.profilePicture) ? (
+                        <Image
+                          src={getImageUrl(user.profilePicture)!}
+                          alt={user.username}
+                          width={32}
+                          height={32}
+                          className="object-cover w-full h-full"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-semibold">
+                          {user.firstName?.[0]}{user.lastName?.[0]}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={commentTexts[post._id] || ''}
+                        onChange={(e) => setCommentTexts(prev => ({ ...prev, [post._id]: e.target.value }))}
+                        placeholder="Write a comment..."
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        maxLength={500}
+                      />
+                      <button
+                        onClick={() => handleComment(post._id)}
+                        disabled={!commentTexts[post._id]?.trim() || isSubmittingComment[post._id]}
+                        className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                      >
+                        <FiSend className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Comments List */}
+                  <div className="space-y-3">
+                    {(post.comments || []).filter(comment => comment && comment._id).map((comment) => (
+                      <div key={comment._id} className="flex items-start space-x-3">
+                        <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                          {isValidImagePath(comment.user.profilePicture) ? (
+                            <Image
+                              src={getImageUrl(comment.user.profilePicture)!}
+                              alt={comment.user.username}
+                              width={24}
+                              height={24}
+                              className="object-cover w-full h-full"
+                            />
+                          ) : (
+                            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold">
+                              {comment.user.firstName?.[0]}{comment.user.lastName?.[0]}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex-1 bg-white rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <Link 
+                              href={`/pages/profile/${comment.user.username}`}
+                              className="font-semibold text-sm text-gray-800 hover:text-blue-600 transition-colors duration-200"
+                            >
+                              {comment.user.firstName && comment.user.lastName 
+                                ? `${comment.user.firstName} ${comment.user.lastName}` 
+                                : comment.user.username}
+                            </Link>
+                            
+                            {(comment.user._id === user?._id || post.user._id === user?._id) && (
+                              <button
+                                onClick={() => deleteComment(post._id, comment._id)}
+                                className="text-gray-400 hover:text-red-500 transition-colors duration-200"
+                                title="Delete comment"
+                              >
+                                <FiTrash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-gray-700 text-sm">{comment.text}</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {formatTime(comment.createdAt)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           {hasMore && (

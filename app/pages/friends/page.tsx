@@ -1,11 +1,13 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthProvider';
-import { FiUser, FiHome, FiLogOut, FiSearch, FiUserPlus, FiUserCheck, FiUserX, FiUsers, FiHeart } from 'react-icons/fi';
+import { FiUser, FiUserPlus, FiUserCheck, FiUserX, FiHeart, FiUsers, FiMessageSquare } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import Navigation from '../../components/Navigation';
+import { getImageUrl, isValidImagePath } from '../../utils/imageUtils';
 
 type FriendSuggestion = {
   _id: string;
@@ -166,30 +168,7 @@ export default function FriendsPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-blue-600">ConnectHub</h1>
-          <div className="flex items-center space-x-4">
-            <Link href="/pages/home" className="text-gray-600 hover:text-blue-600">
-              <FiHome className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
-              <FiSearch className="h-6 w-6" />
-            </Link>
-            <Link href={`/pages/profile/${user?.username}`} className="text-gray-600 hover:text-blue-600">
-              <FiUser className="h-6 w-6" />
-            </Link>
-            <button
-              onClick={logout}
-              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-            >
-              <FiLogOut className="h-5 w-5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navigation />
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto py-6 px-4">
@@ -272,9 +251,9 @@ export default function FriendsPage() {
                       <div key={suggestion._id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all duration-200">
                         <div className="flex items-start space-x-3 mb-3">
                           <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                            {suggestion.profilePicture ? (
+                            {isValidImagePath(suggestion.profilePicture) ? (
                               <Image
-                                src={suggestion.profilePicture}
+                                src={getImageUrl(suggestion.profilePicture)!}
                                 alt={suggestion.username}
                                 width={48}
                                 height={48}
@@ -331,6 +310,12 @@ export default function FriendsPage() {
                           >
                             <FiUser className="h-4 w-4" />
                           </Link>
+                          <Link
+                            href={`/pages/chat?user=${suggestion._id}`}
+                            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
+                          >
+                            <FiMessageSquare className="h-4 w-4" />
+                          </Link>
                         </div>
                       </div>
                     ))}
@@ -358,9 +343,9 @@ export default function FriendsPage() {
                       <div key={request._id} className="border border-gray-200 rounded-lg p-4">
                         <div className="flex items-start space-x-3 mb-3">
                           <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                            {request.from.profilePicture ? (
+                            {isValidImagePath(request.from.profilePicture) ? (
                               <Image
-                                src={request.from.profilePicture}
+                                src={getImageUrl(request.from.profilePicture)!}
                                 alt={request.from.username}
                                 width={48}
                                 height={48}
@@ -412,6 +397,12 @@ export default function FriendsPage() {
                             <FiUserX className="h-4 w-4" />
                             <span>Reject</span>
                           </button>
+                          <Link
+                            href={`/pages/chat?user=${request.from._id}`}
+                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                          >
+                            <FiMessageSquare className="h-4 w-4" />
+                          </Link>
                         </div>
                       </div>
                     ))}
@@ -440,9 +431,9 @@ export default function FriendsPage() {
                       <div key={friend._id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all duration-200">
                         <div className="flex items-start space-x-3 mb-3">
                           <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                            {friend.profilePicture ? (
+                            {isValidImagePath(friend.profilePicture) ? (
                               <Image
-                                src={friend.profilePicture}
+                                src={getImageUrl(friend.profilePicture)!}
                                 alt={friend.username}
                                 width={48}
                                 height={48}
@@ -476,12 +467,21 @@ export default function FriendsPage() {
                           </div>
                         )}
                         
-                        <Link
-                          href={`/pages/profile/${friend.username}`}
-                          className="block w-full text-center px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
-                        >
-                          View Profile
-                        </Link>
+                        <div className="flex space-x-2">
+                          <Link
+                            href={`/pages/profile/${friend.username}`}
+                            className="flex-1 text-center px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+                          >
+                            View Profile
+                          </Link>
+                          <Link
+                            href={`/pages/chat?user=${friend._id}`}
+                            className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                          >
+                            <FiMessageSquare className="h-4 w-4" />
+                            <span>Chat</span>
+                          </Link>
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -2,11 +2,13 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthProvider';
-import { FiSearch, FiUser, FiHome, FiLogOut, FiHeart, FiMessageSquare, FiUsers, FiFileText } from 'react-icons/fi';
+import { FiSearch, FiUser, FiHeart, FiFileText, FiUsers, FiMessageSquare } from 'react-icons/fi';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import Navigation from '../../components/Navigation';
+import { getImageUrl, isValidImagePath } from '../../utils/imageUtils';
 
 type User = {
   _id: string;
@@ -155,30 +157,7 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-blue-600">ConnectHub</h1>
-          <div className="flex items-center space-x-4">
-            <Link href="/pages/home" className="text-gray-600 hover:text-blue-600">
-              <FiHome className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
-              <FiUsers className="h-6 w-6" />
-            </Link>
-            <Link href={`/pages/profile/${user?.username}`} className="text-gray-600 hover:text-blue-600">
-              <FiUser className="h-6 w-6" />
-            </Link>
-            <button
-              onClick={logout}
-              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-            >
-              <FiLogOut className="h-5 w-5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navigation />
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto py-6 px-4">
@@ -287,16 +266,15 @@ export default function SearchPage() {
                           </h3>
                           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                             {searchResults.users.map((user) => (
-                              <Link
+                              <div
                                 key={user._id}
-                                href={`/pages/profile/${user.username}`}
-                                className="block p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all duration-200"
+                                className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all duration-200"
                               >
-                                <div className="flex items-center space-x-3">
+                                <div className="flex items-center space-x-3 mb-3">
                                   <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                                    {user.profilePicture ? (
+                                    {isValidImagePath(user.profilePicture) ? (
                                       <Image
-                                        src={user.profilePicture}
+                                        src={getImageUrl(user.profilePicture)!}
                                         alt={user.username}
                                         width={48}
                                         height={48}
@@ -325,7 +303,22 @@ export default function SearchPage() {
                                     )}
                                   </div>
                                 </div>
-                              </Link>
+                                <div className="flex space-x-2">
+                                  <Link
+                                    href={`/pages/profile/${user.username}`}
+                                    className="flex-1 text-center px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+                                  >
+                                    View Profile
+                                  </Link>
+                                  <Link
+                                    href={`/pages/chat?user=${user._id}`}
+                                    className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                                  >
+                                    <FiMessageSquare className="h-4 w-4" />
+                                    <span>Chat</span>
+                                  </Link>
+                                </div>
+                              </div>
                             ))}
                           </div>
                         </div>
@@ -347,9 +340,9 @@ export default function SearchPage() {
                               >
                                 <div className="flex items-start space-x-3">
                                   <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                                    {post.user.profilePicture ? (
+                                    {isValidImagePath(post.user.profilePicture) ? (
                                       <Image
-                                        src={post.user.profilePicture}
+                                        src={getImageUrl(post.user.profilePicture)!}
                                         alt={post.user.username}
                                         width={40}
                                         height={40}
@@ -406,16 +399,15 @@ export default function SearchPage() {
                         <>
                           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                             {userResults.map((user) => (
-                              <Link
+                              <div
                                 key={user._id}
-                                href={`/pages/profile/${user.username}`}
-                                className="block p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all duration-200"
+                                className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all duration-200"
                               >
-                                <div className="flex items-center space-x-3">
+                                <div className="flex items-center space-x-3 mb-3">
                                   <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                                    {user.profilePicture ? (
+                                    {isValidImagePath(user.profilePicture) ? (
                                       <Image
-                                        src={user.profilePicture}
+                                        src={getImageUrl(user.profilePicture)!}
                                         alt={user.username}
                                         width={48}
                                         height={48}
@@ -444,7 +436,22 @@ export default function SearchPage() {
                                     )}
                                   </div>
                                 </div>
-                              </Link>
+                                <div className="flex space-x-2">
+                                  <Link
+                                    href={`/pages/profile/${user.username}`}
+                                    className="flex-1 text-center px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+                                  >
+                                    View Profile
+                                  </Link>
+                                  <Link
+                                    href={`/pages/chat?user=${user._id}`}
+                                    className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                                  >
+                                    <FiMessageSquare className="h-4 w-4" />
+                                    <span>Chat</span>
+                                  </Link>
+                                </div>
+                              </div>
                             ))}
                           </div>
                           {hasMoreUsers && (
@@ -481,9 +488,9 @@ export default function SearchPage() {
                               >
                                 <div className="flex items-start space-x-3">
                                   <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                                    {post.user.profilePicture ? (
+                                    {isValidImagePath(post.user.profilePicture) ? (
                                       <Image
-                                        src={post.user.profilePicture}
+                                        src={getImageUrl(post.user.profilePicture)!}
                                         alt={post.user.username}
                                         width={40}
                                         height={40}

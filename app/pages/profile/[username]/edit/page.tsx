@@ -2,9 +2,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../../context/AuthProvider';
-import { FiUser, FiSave, FiX, FiArrowLeft, FiHome, FiLogOut, FiSearch, FiUsers } from 'react-icons/fi';
+import { FiUser, FiSave, FiX, FiArrowLeft, FiCamera } from 'react-icons/fi';
 import Link from 'next/link';
+import Image from 'next/image';
 import toast from 'react-hot-toast';
+import Navigation from '../../../../components/Navigation';
+import { getImageUrl, isValidImagePath } from '../../../../utils/imageUtils';
 
 export default function EditProfilePage() {
   const { username } = useParams();
@@ -16,6 +19,8 @@ export default function EditProfilePage() {
     bio: '',
     interests: [] as string[],
   });
+  const [profilePicture, setProfilePicture] = useState<File | null>(null);
+  const [profilePicturePreview, setProfilePicturePreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -70,6 +75,32 @@ export default function EditProfilePage() {
     });
   };
 
+  const handleProfilePictureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast.error('Please select an image file');
+        return;
+      }
+      
+      // Validate file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Image size must be less than 5MB');
+        return;
+      }
+      
+      setProfilePicture(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setProfilePicturePreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -80,11 +111,40 @@ export default function EditProfilePage() {
 
     setIsSaving(true);
     try {
-      await updateProfile(formData);
+      // If there's a new profile picture, upload it first
+      let profilePicturePath = user?.profilePicture || '';
+      
+      if (profilePicture) {
+        const formData = new FormData();
+        formData.append('profilePicture', profilePicture);
+        
+        const token = localStorage.getItem('token');
+        const uploadRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/profile/picture`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+        
+        if (!uploadRes.ok) {
+          throw new Error('Failed to upload profile picture');
+        }
+        
+        const uploadData = await uploadRes.json();
+        profilePicturePath = uploadData.profilePicture;
+      }
+      
+      // Update profile with new data including profile picture path
+      await updateProfile({
+        ...formData,
+        profilePicture: profilePicturePath
+      });
+      
       toast.success('Profile updated successfully!');
       router.push(`/pages/profile/${username}`);
     } catch (err: any) {
-      toast.error(err.response?.data?.msg || 'Failed to update profile');
+      toast.error(err.response?.data?.msg || err.message || 'Failed to update profile');
     } finally {
       setIsSaving(false);
     }
@@ -107,33 +167,7 @@ export default function EditProfilePage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-blue-600">ConnectHub</h1>
-          <div className="flex items-center space-x-4">
-            <Link href="/pages/home" className="text-gray-600 hover:text-blue-600">
-              <FiHome className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/search" className="text-gray-600 hover:text-blue-600">
-              <FiSearch className="h-6 w-6" />
-            </Link>
-            <Link href="/pages/friends" className="text-gray-600 hover:text-blue-600">
-              <FiUsers className="h-6 w-6" />
-            </Link>
-            <Link href={`/pages/profile/${user.username}`} className="text-blue-600">
-              <FiUser className="h-6 w-6" />
-            </Link>
-            <button
-              onClick={logout}
-              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-            >
-              <FiLogOut className="h-5 w-5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navigation />
 
       {/* Main Content */}
       <main className="max-w-2xl mx-auto py-6 px-4">
@@ -153,6 +187,47 @@ export default function EditProfilePage() {
           <h1 className="text-2xl font-bold text-gray-800 mb-6">Edit Profile</h1>
           
           <form className="space-y-6" onSubmit={handleSubmit}>
+            {/* Profile Picture Upload */}
+            <div className="flex items-center space-x-6">
+              <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                {profilePicturePreview ? (
+                  <Image
+                    src={profilePicturePreview}
+                    alt="Profile preview"
+                    width={96}
+                    height={96}
+                    className="object-cover w-full h-full"
+                  />
+                ) : isValidImagePath(user?.profilePicture) ? (
+                  <Image
+                    src={getImageUrl(user?.profilePicture)!}
+                    alt={`${user?.firstName} ${user?.lastName}`}
+                    width={96}
+                    height={96}
+                    className="object-cover w-full h-full"
+                  />
+                ) : (
+                  <FiUser className="h-12 w-12 text-gray-500" />
+                )}
+              </div>
+              <div>
+                <label htmlFor="profilePicture" className="block text-sm font-medium text-gray-700 mb-2">
+                  Profile Picture
+                </label>
+                <input
+                  id="profilePicture"
+                  name="profilePicture"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleProfilePictureChange}
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  JPG, PNG, GIF up to 5MB
+                </p>
+              </div>
+            </div>
+
             {/* Name Fields */}
             <div className="grid grid-cols-2 gap-4">
               <div>
